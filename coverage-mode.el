@@ -1,6 +1,7 @@
 ;;; coverage-mode.el --- Code coverage line highlighting
 
 ;; Copyright (C) 2016 Powershop NZ Ltd.
+;; Copyright (C) 2016 Bogdan Popa
 
 ;; Author: Kieran Trezona-le Comte <trezona.lecomte@gmail.com>
 ;; Version: 0.1
@@ -41,38 +42,37 @@
 ;; provided by the Simplecov gem (specifically, the RSpec results in
 ;; the .resultset.json file it outputs).
 
+;;; Code:
+(require 'cl-extra)
 (require 'json)
+(require 'ov)
 (load-library "ov")
 (autoload 'vc-git-root "vc-git")
-
-;;; Code:
 
 (defgroup coverage-mode nil
   "Code coverage line highlighting for Emacs.")
 
-(defvar coverage-resultset-filename ".resultset.json")
+(defvar coverage-resultset-filename ".coverage")
 
 (defcustom coverage-dir nil
   "The coverage directory for `coverage-mode'.
 
-For example: \"~/dir/to/my/project/coverage/\".
+For example: \"~/dir/to/my/project/\".
 
-If set, look in this directory for a .resultset.json file to
-obtain coverage results.
+If set, look in this directory for a .coverage file to obtain coverage
+results.
 
-If nil, look for a /coverage directory immediately under the Git
-root directory."
-  :type '(choice (const :tag "Default (vc-git-root/coverage)" nil)
+If nil, assume the directory is the Git root directory."
+  :type '(choice (const :tag "Default (vc-git-root)" nil)
                  (string :tag "Path to coverage diretory"))
   :group 'coverage-mode)
 
 (defun coverage/dir-for-file (filepath)
   "Guess the coverage directory of the given FILEPATH.
 
-Use `coverage-dir' if set, or fall back to /coverage under Git root."
-  (if coverage-dir
-      (coverage-dir)
-    (concat (vc-git-root filepath) "coverage/")))
+Use `coverage-dir' if set, or fall back to the Git root."
+  (or coverage-dir
+      (vc-git-root filepath)))
 
 (defun coverage/clear-highlighting-for-current-buffer ()
   "Clear all coverage highlighting for the current buffer."
@@ -81,15 +81,15 @@ Use `coverage-dir' if set, or fall back to /coverage under Git root."
 (defun coverage/draw-highlighting-for-current-buffer ()
   "Highlight the lines of the current buffer, based on code coverage."
   (save-excursion
-    (goto-char (point-min))
-    (dolist (element (coverage/get-results-for-current-buffer))
-      (cond ((eq element nil)
-             (ov-clear (line-beginning-position) (line-end-position)))
-            ((= element 0)
-             (ov (line-beginning-position) (line-end-position) 'face 'coverage/uncovered-face))
-            ((> element 0)
-             (ov (line-beginning-position) (line-end-position) 'face 'coverage/covered-face)))
-      (forward-line))))
+    (let ((covered-lines (coverage/get-results-for-current-buffer))
+          (line 1))
+      (goto-char (point-min))
+      (while (not (eobp))
+        (if (member line covered-lines)
+            (ov (line-beginning-position) (line-end-position) 'face 'coverage/covered-face)
+          (ov (line-beginning-position) (line-end-position) 'face 'coverage/uncovered-face))
+        (forward-line 1)
+        (setq line (1+ line))))))
 
 (defun coverage/get-results-for-current-buffer ()
   "Return a list of coverage for the current buffer."
@@ -99,21 +99,20 @@ Use `coverage-dir' if set, or fall back to /coverage under Git root."
 
 (defun coverage/get-results-for-file (target-path result-path)
   "Return coverage for the file at TARGET-PATH from resultset at RESULT-PATH."
-  (coerce (cdr
-           (assoc-string target-path
-                         (assoc 'coverage
-                                (assoc 'RSpec
-                                       (coverage/get-results-from-json result-path)))))
-          'list))
+  (cl-coerce (cdr
+              (assoc-string target-path
+                            (assoc 'lines
+                                   (coverage/get-results-from-json result-path))))
+             'list))
 
 (defun coverage/get-results-from-json (filepath)
   "Return alist of the json resultset at FILEPATH."
   (json-read-from-string (with-temp-buffer
                            (insert-file-contents filepath)
-                           (buffer-string))))
+                           ;; The coverage format is "private"
+                           (substring (buffer-string) 63))))
 
 ;;; Faces
-
 (defface coverage/covered-face
   '((((class color) (background light))
      :background "#ddffdd")
@@ -144,5 +143,4 @@ Use `coverage-dir' if set, or fall back to /coverage under Git root."
     (coverage/clear-highlighting-for-current-buffer)))
 
 (provide 'coverage-mode)
-
 ;;; coverage-mode.el ends here
