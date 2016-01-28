@@ -1,6 +1,6 @@
 # Code coverage highlighting for Emacs
 
-A fork of [fork][fork] with Python coverage support.
+A fork of [trezona-lecomte/coverage-mode][fork] with Python coverage support.
 
 ![Screenshot](screenshot.png)
 
