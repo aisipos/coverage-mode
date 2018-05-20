@@ -99,11 +99,25 @@ Use `coverage-dir' if set, or fall back to the Git root."
 
 (defun coverage/get-results-for-file (target-path result-path)
   "Return coverage for the file at TARGET-PATH from resultset at RESULT-PATH."
-  (cl-coerce (cdr
-              (assoc-string target-path
-                            (assoc 'lines
-                                   (coverage/get-results-from-json result-path))))
-             'list))
+  (let ((cov (coverage/get-results-from-json result-path)))
+        (cond
+         ((eq (caar cov) 'arcs)
+          ;; Arcs means each file has set of branches (a list of pairs of lines)
+          (let* ((arcs (cdr
+                        (assoc-string target-path (assoc 'arcs cov))))
+                 ;;arcs will be a vector of vectors. Convert it to a flat list
+                 (arcsl (apply #'append (-snoc arcs nil))))
+            ;; flatten and uniquify the list
+            ;; throw away negative lines
+            ;; (cl-coerce (-distinct (-remove (lambda (n) (>= n 0)) (-flatten arcs))) 'list)))
+            (cl-coerce (sort (-distinct (-remove (lambda (n) (< n 0)) arcsl)) '<) 'list)))
+         ((eq (caar cov) 'lines)
+          ;; Lines means each file has a list of covered lines
+          (cl-coerce (cdr
+                      (assoc-string target-path (assoc 'lines cov)))
+                     'list))
+         (t (message "Coverage file has neither lines or arcs"))
+        )))
 
 (defun coverage/get-results-from-json (filepath)
   "Return alist of the json resultset at FILEPATH."
